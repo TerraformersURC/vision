@@ -7,7 +7,7 @@ if not os.path.exists(calibration_dir):
     os.makedirs(calibration_dir)
 
 # Initialize the camera
-camera_index = 1  # Adjust the camera index if necessary
+camera_index = 0  # Adjust the camera index if necessary
 cap = cv2.VideoCapture(camera_index)
 
 # Set camera properties (if needed)

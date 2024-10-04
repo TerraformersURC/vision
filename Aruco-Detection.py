@@ -1,16 +1,19 @@
-import imutils
-from imutils.video import VideoStream
 import argparse
 import time
 import cv2
 import sys
 import math
+import numpy as np
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-t", "--type", type=str,
 	default="DICT_ARUCO_ORIGINAL",
 	help="type of ArUCo tag to detect")
 args = vars(ap.parse_args())
+
+with np.load('camera_calibration_parameters.npz') as data:
+    camera_matrix = data['camera_matrix']
+    dist_coeffs = data['dist_coeffs']
 
 ARUCO_DICT = {
 	"DICT_4X4_50": cv2.aruco.DICT_4X4_50,
@@ -49,19 +52,23 @@ arucoParams = cv2.aruco.DetectorParameters()
 
 # initialize the video stream and allow the camera sensor to warm up
 print("[INFO] starting video stream...")
-vs = VideoStream(src=0).start()
-time.sleep(2.0)
-
+vs = cv2.VideoCapture(0)
 
 # loop over the frames from the video stream
 while True:
 	# grab the frame from the threaded video stream and resize it
 	# to have a maximum width of 1000 pixels
-	frame = vs.read()
-	frame = imutils.resize(frame, width=1000)
+	ret, frame = vs.read()
 	# detect ArUco markers in the input frame
-	(corners, ids, rejected) = cv2.aruco.detectMarkers(frame,arucoDict, parameters=arucoParams)
-	
+
+	if not ret:
+		print("failed to get frame")
+		break
+
+	detector = cv2.aruco.ArucoDetector(arucoDict, arucoParams)
+	(corners, ids, rejected) = detector.detectMarkers(frame)
+	print(corners)
+
 	# verify *at least* one ArUco marker was detected
 	if len(corners) > 0:
 		# flatten the ArUco IDs list
