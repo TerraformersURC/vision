@@ -21,7 +21,6 @@ setup(
     maintainer_email='97805427+GoldenApple265@users.noreply.github.com',
     description='TODO: Package description',
     license='Apache-2.0',
-    tests_require=['pytest'],
     entry_points={
     'console_scripts': [
         'aruco_detector = aruco_vision.aruco_detection:main',
