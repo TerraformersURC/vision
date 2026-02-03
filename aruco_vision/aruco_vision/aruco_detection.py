@@ -10,11 +10,12 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-from rover_interface.msg import Aruco  # Make sure this matches your actual msg path
+from aruco_msgs.msg import Aruco
+
 
 
 ARUCO_TOPIC = "/aruco_topic"
-VIDEO_TOPIC = "/camera/image_raw"
+VIDEO_TOPIC = "/robot/depth_camera/image_raw"
 
 
 class ArucoNode(Node):
@@ -78,9 +79,8 @@ class ArucoNode(Node):
 
         print(f"[INFO] detecting '{args['type']}' tags...")
         self.arucoDict = cv2.aruco.getPredefinedDictionary(ARUCO_DICT[args["type"]])
-        self.arucoParams = cv2.aruco.DetectorParameters()
+        self.arucoParams = cv2.aruco.DetectorParameters_create()
 
-        self.detector = cv2.aruco.ArucoDetector(self.arucoDict, self.arucoParams)
         print("[INFO] starting video stream...")
 
         self.timer = self.create_timer(0.03,self.detect_aruco)
@@ -95,9 +95,6 @@ class ArucoNode(Node):
             return
         
         
-        
-        
-
 
     def detect_aruco(self):
         tag_size = 0.1  # meters
@@ -109,7 +106,8 @@ class ArucoNode(Node):
             return
         
             
-        (corners, ids, rejected) = self.detector.detectMarkers(self.video_feed)
+        (corners, ids, rejected) = cv2.aruco.detectMarkers(self.video_feed, self.arucoDict, parameters=self.arucoParams)
+        
         if len(corners) > 0:
             ids = ids.flatten()
             for (markerCorner, markerID) in zip(corners, ids):

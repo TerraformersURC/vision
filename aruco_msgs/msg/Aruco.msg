@@ -1,0 +1,10 @@
+bool active
+int32 tag_id
+float32 distance
+float32 pixel_based_distance
+float32[] tvec
+float32[] rvec
+float32[] corners
+float32 yaw
+float32 pitch
+float32 roll
