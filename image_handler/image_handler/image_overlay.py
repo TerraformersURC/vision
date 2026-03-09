@@ -14,8 +14,8 @@ from aruco_msgs.msg import Aruco
 
 
 
-ARUCO_TOPIC = "/aruco_topic"
-VIDEO_TOPIC = "/robot/depth_camera/image_raw"
+ARUCO_TOPIC = "/new_image"
+VIDEO_TOPIC = "/zed/zed_node/rgb/color/rect/image"
 
 
 class ArucoNode(Node):
@@ -82,6 +82,11 @@ class ArucoNode(Node):
         self.arucoParams = cv2.aruco.DetectorParameters_create()
 
         print("[INFO] starting video stream...")
+
+        # Skyrim marker
+        self.circle_x = 320
+        self.circle_y = 240
+        self.circle_speed = 10
 
         self.timer = self.create_timer(0.03,self.detect_aruco)
 
@@ -179,10 +184,26 @@ class ArucoNode(Node):
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
                     cv2.putText(self.video_feed, text2, (topLeft[0], topLeft[1] - 55),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        
+        # draw locator bar
+        pt1 = (0, 30)
+        pt2 = (1000, 30)
+        cv2.line(self.video_feed, pt1, pt2, (0, 0, 0), 2)
+        cv2.circle(self.video_feed, (self.circle_x, self.circle_y), 5, (0, 255, 255), 2)
+
         cv2.imshow("Frame", self.video_feed)
         key = cv2.waitKey(1) & 0xFF
+
         if key == ord("q"):
-            return           
+            return
+        elif key == ord("w"):
+            self.circle_y -= self.circle_speed
+        elif key == ord("s"):
+            self.circle_y += self.circle_speed
+        elif key == ord("a"):
+            self.circle_x -= self.circle_speed
+        elif key == ord("d"):
+            self.circle_x += self.circle_speed         
         
 
 

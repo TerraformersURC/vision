@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-package_name = 'aruco_vision'
+package_name = 'image_handler'
 
 setup(
     name=package_name,
@@ -23,8 +23,8 @@ setup(
     license='Apache-2.0',
     entry_points={
     'console_scripts': [
-        'aruco_detector = aruco_vision.aruco_detection:main',
-        'calibrate = aruco_vision.calibrate:main'
+        'image_overlay = image_handler.image_overlay:main',
+        'calibrate = image_handler.calibrate:main'
     ],
     }
 )
