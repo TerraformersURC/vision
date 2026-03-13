@@ -28,12 +28,12 @@ class RealsenseCam():
         return depth_colormap
 
     def get_color_frame(self) -> np.ndarray:
-        color_frame = self.frames.get_color_frame.get_data()
+        color_frame = self.frames.get_color_frame().get_data()
         return np.asarray(color_frame)
 
     def get_infrared_frame(self) -> np.ndarray:
-        infrared_frame = self.frames.get_color_frame.get_data()
-        return np.asarray(color_frame)
+        infrared_frame = self.frames.get_infrared_frame().get_data()
+        return np.asarray(infrared_frame)
 
 
 if __name__ == "__main__":
@@ -46,5 +46,3 @@ if __name__ == "__main__":
 
         if cv.waitKey(1) == ord('q'):
             break
-
-        
