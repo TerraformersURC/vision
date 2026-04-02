@@ -58,7 +58,7 @@ class ArucoNode(Node):
         self.odom_wz  = 0.0
 
         #STORE ARUCO INFORMATION
-        package_path = get_package_share_directory('aruco_vision')
+        package_path = get_package_share_directory('image_handler')
         npz_path = os.path.join(package_path, 'config', 'camera_calibration_parameters.npz')
 
 
@@ -109,7 +109,8 @@ class ArucoNode(Node):
 
         print(f"[INFO] detecting '{args['type']}' tags...")
         self.arucoDict = cv2.aruco.getPredefinedDictionary(ARUCO_DICT[args["type"]])
-        self.arucoParams = cv2.aruco.DetectorParameters_create()
+        self.arucoParams = cv2.aruco.DetectorParameters()
+        self.arucoDetector = cv2.aruco.ArucoDetector(self.arucoDict, self.arucoParams)
 
         print("[INFO] starting video stream...")
 
@@ -141,7 +142,7 @@ class ArucoNode(Node):
             return
         
             
-        (corners, ids, rejected) = cv2.aruco.detectMarkers(self.video_feed, self.arucoDict, parameters=self.arucoParams)
+        (corners, ids, rejected) = self.arucoDetector.detectMarkers(self.video_feed)
         
         if len(corners) > 0:
             ids = ids.flatten()
