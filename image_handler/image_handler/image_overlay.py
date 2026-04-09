@@ -12,6 +12,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from aruco_msgs.msg import Aruco
 from geometry_msgs.msg import PoseStamped
+from rover_interface.msg import WaypointList, WaypointData, GPSData
 
 
 
@@ -19,8 +20,7 @@ ARUCO_TOPIC = "/new_image"
 VIDEO_TOPIC = "/zed/zed_node/rgb/color/rect/image"
 ODOM_TOPIC  = "/zed/zed_node/odom"
 
-
-class ArucoNode(Node):
+class OverlayNode(Node):
     def __init__(self):
         super().__init__('aruco_node')
 
@@ -114,12 +114,29 @@ class ArucoNode(Node):
 
         print("[INFO] starting video stream...")
 
-        # Skyrim marker
+        # Waypoints
         self.circle_x = 425 # Image is ~950 across
         self.circle_y = 30
         self.circle_speed = 10
 
         self.timer = self.create_timer(0.03,self.detect_aruco)
+
+        self.subscription = self.create_subscription(
+            WaypointList,
+            'waypoints_topic',
+            self.waypoint_callback,
+            10
+        )
+
+        self.home_lat = None  # change from hardcoded value to None
+        self.home_lon = None
+
+        self.gps_subscription = self.create_subscription(
+            GPSData,
+            'gps_topic',
+            self.gps_callback,
+            10
+        )
 
 
 
@@ -130,7 +147,36 @@ class ArucoNode(Node):
             print("error converting camera feed to cv2 feed")
             return
         
+
+    def waypoint_callback(self, msg: WaypointList):
+        self.waypoints = msg.list_waypoints
+
+
+    def gps_callback(self, msg):
+        if msg.fix_quality == 0 or msg.status == 0:
+            return
         
+        if self.home_lat is None:
+            self.home_lat = msg.latitude
+            self.home_lon = msg.longitude
+            self.get_logger().info(
+                f"Home set: {self.home_lat:.6f}, {self.home_lon:.6f} "
+                f"({msg.num_satellites} sats, HDOP {msg.hdop:.1f})"
+            )
+
+
+    def latlon_to_local(self, lat, lon):
+        # Convert lat/lon to local ENU metres relative to home origin
+        R = 6371000.0  # Earth radius in metres
+
+        dlat = math.radians(lat - self.home_lat)
+        dlon = math.radians(lon - self.home_lon)
+
+        x = dlon * R * math.cos(math.radians(self.home_lat))  # East
+        y = dlat * R                                           # North
+
+        return x, y
+
 
     def detect_aruco(self):
         tag_size = 0.1  # meters
@@ -217,6 +263,17 @@ class ArucoNode(Node):
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
         self.overlay_markers()
 
+
+    def color_from_string(self, color: str):
+        color_map = {
+            "red":    (0, 0, 255),
+            "green":  (0, 255, 0),
+            "blue":   (255, 0, 0),
+            "yellow": (0, 255, 255),
+        }
+        return color_map.get(color.lower(), (255, 255, 255))
+    
+
     def overlay_markers(self):
         
         # add padding to image
@@ -250,14 +307,20 @@ class ArucoNode(Node):
             text_width, _ = cv2.getTextSize(text, font, scale, thickness)[0]
             x_pos += text_width
                 
+        if self.home_lat is None or not hasattr(self, 'waypoints'):
+            return
+
         self.targets = [
-            {"id": 0, "pos": np.array([5.0, 0.0, 0.0]), "color": (0, 255, 255)},
-            {"id": 1, "pos": np.array([0.0, 5.0, 0.0]), "color": (0, 255, 0)},
-            {"id": 2, "pos": np.array([-3.0, 2.0, 0.0]), "color": (0, 0, 255)},
+            {
+                "id": i,
+                "pos": np.array([*self.latlon_to_local(wp.latitude, wp.longitude), 0.0]),
+                "color": self.color_from_string(wp.waypoint_color)
+            }
+            for i, wp in enumerate(self.waypoints)
         ]
 
         # draw locator bar
-        bar_y = 30  # in the top padding
+        bar_y = 30
         bar_x_left = 0
         bar_x_right = display_frame.shape[1]
         bar_center_x = bar_x_right // 2
@@ -281,13 +344,12 @@ class ArucoNode(Node):
             # Normalize to [-pi, pi]
             relative_angle = (relative_angle + math.pi) % (2 * math.pi) - math.pi
 
-            # Only draw if within the bar's FOV
             if abs(relative_angle) <= bar_fov / 2:
                 # Map angle to pixel position
                 dot_x = int(bar_center_x + (relative_angle / (bar_fov / 2)) * (bar_x_right // 2))
                 dot_x = max(bar_x_left + 5, min(bar_x_right - 5, dot_x))
                 cv2.circle(display_frame, (dot_x, bar_y), 6, target["color"], -1)
-                # Label with id
+
                 cv2.putText(display_frame, str(target["id"]), (dot_x - 4, bar_y - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.35, target["color"], 1)
             else:
@@ -296,7 +358,7 @@ class ArucoNode(Node):
                 pts = np.array([[edge_x, bar_y + (30 * target["id"])], [edge_x + (8 if relative_angle < 0 else -8), bar_y - 6 + (30 * target["id"])],
                                 [edge_x + (8 if relative_angle < 0 else -8), bar_y + 6 + (30 * target["id"])]], np.int32)
                 cv2.fillPoly(display_frame, [pts], target["color"])
-                # Label with id
+
                 cv2.putText(display_frame, str(target["id"]), (edge_x - 4, bar_y + (30 * target["id"]) - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.35, target["color"], 1)
 
@@ -346,9 +408,9 @@ class ArucoNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    aruco_node = ArucoNode()
+    overlay_node = OverlayNode()
 
-    rclpy.spin(aruco_node)
-    aruco_node.destroy_node()
+    rclpy.spin(overlay_node)
+    overlay_node.destroy_node()
     rclpy.shutdown()
     cv2.destroyAllWindows()
