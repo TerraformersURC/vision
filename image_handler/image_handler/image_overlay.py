@@ -67,7 +67,7 @@ class OverlayNode(Node):
             self.dist_coeffs = data['dist_coeffs']
 
         self.aruco_publisher = self.create_publisher(Aruco, ARUCO_TOPIC, 10)
-        self.display_publisher = self.create_publisher(Image, "/aruco/display_image", 10)
+        self.display_publisher = self.create_publisher(Image, "/overlay/image", 10)
         self.camera_subscription = self.create_subscription(Image,VIDEO_TOPIC, self.set_videofeed_callback,10)
 
 
@@ -127,6 +127,9 @@ class OverlayNode(Node):
             self.waypoint_callback,
             10
         )
+
+        self.waypoints = []
+        self.targets = []
 
         self.home_lat = None  # change from hardcoded value to None
         self.home_lon = None
@@ -307,17 +310,16 @@ class OverlayNode(Node):
             text_width, _ = cv2.getTextSize(text, font, scale, thickness)[0]
             x_pos += text_width
                 
-        if self.home_lat is None or not hasattr(self, 'waypoints'):
-            return
-
-        self.targets = [
-            {
-                "id": i,
-                "pos": np.array([*self.latlon_to_local(wp.latitude, wp.longitude), 0.0]),
-                "color": self.color_from_string(wp.waypoint_color)
-            }
-            for i, wp in enumerate(self.waypoints)
-        ]
+        # Only build targets if we have GPS home and waypoints
+        if self.home_lat is not None and len(self.waypoints) > 0:
+            self.targets = [
+                {
+                    "id": i,
+                    "pos": np.array([*self.latlon_to_local(wp.latitude, wp.longitude), 0.0]),
+                    "color": self.color_from_string(wp.waypoint_color)
+                }
+                for i, wp in enumerate(self.waypoints)
+            ]
 
         # draw locator bar
         bar_y = 30
