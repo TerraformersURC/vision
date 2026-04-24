@@ -12,12 +12,11 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from aruco_msgs.msg import Aruco
 from geometry_msgs.msg import PoseStamped
-from rover_interface.msg import WaypointList, WaypointData, GPSData
+from rover_interface.msg import WaypointList, WaypointData, GPSData, Controller
 
 
 
 ARUCO_TOPIC = "/new_image"
-VIDEO_TOPIC = "/zed/zed_node/rgb/color/rect/image"
 ODOM_TOPIC  = "/zed/zed_node/odom"
 
 class OverlayNode(Node):
@@ -68,7 +67,10 @@ class OverlayNode(Node):
 
         self.aruco_publisher = self.create_publisher(Aruco, ARUCO_TOPIC, 10)
         self.display_publisher = self.create_publisher(Image, "/overlay/image", 10)
-        self.camera_subscription = self.create_subscription(Image,VIDEO_TOPIC, self.set_videofeed_callback,10)
+
+        self.current_video_topic = "/zed0/zed_node/rgb/color/rect/image"
+        self.camera_subscription = self.create_subscription(
+            Image, self.current_video_topic, self.set_videofeed_callback, 10)
 
 
 
@@ -141,6 +143,12 @@ class OverlayNode(Node):
             10
         )
 
+        self.controller_subscription = self.create_subscription(
+            Controller,
+            '/controller_topic',
+            self.controller_callback,
+            10
+        )
 
 
     def set_videofeed_callback(self,msg):
@@ -149,6 +157,22 @@ class OverlayNode(Node):
         except:
             print("error converting camera feed to cv2 feed")
             return
+        
+    
+    def controller_callback(self,msg):
+        # change camera feed subscription
+        if msg.camera_num == 0:
+            new_topic = "/zed0/zed_node/rgb/color/rect/image"
+        else:
+            new_topic = "/zed1/zed_node/rgb/color/rect/image"
+
+        # Only resubscribe if topic actually changed
+        if new_topic != self.current_video_topic:
+            self.current_video_topic = new_topic
+            self.destroy_subscription(self.camera_subscription)
+            self.camera_subscription = self.create_subscription(
+                Image, new_topic, self.set_videofeed_callback, 10)
+            self.get_logger().info(f'Switched video feed to: {new_topic}')
         
 
     def waypoint_callback(self, msg: WaypointList):
