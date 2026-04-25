@@ -77,7 +77,10 @@ class OverlayNode(Node):
 
         ap = argparse.ArgumentParser()
         ap.add_argument("-t", "--type", type=str, default="DICT_4X4_50", help="type of ArUCo tag to detect")
-        args = vars(ap.parse_args())
+        ap.add_argument("--no-display", action="store_true", help="disable OpenCV display window")
+        args = vars(ap.parse_known_args()[0])
+
+        self.no_display = args["no_display"]
 
         
 
@@ -389,19 +392,9 @@ class OverlayNode(Node):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.35, target["color"], 1)
 
 
-        cv2.imshow("Frame", display_frame)
-        key = cv2.waitKey(1) & 0xFF
-
-        if key == ord("q"):
-            return
-        elif key == ord("w"):
-            self.circle_y -= self.circle_speed
-        elif key == ord("s"):
-            self.circle_y += self.circle_speed
-        elif key == ord("a"):
-            self.circle_x -= self.circle_speed
-        elif key == ord("d"):
-            self.circle_x += self.circle_speed   
+        if not self.no_display:
+            cv2.imshow("Frame", display_frame)
+            key = cv2.waitKey(1) & 0xFF
 
         display_msg = self.ros_cv_bridge.cv2_to_imgmsg(display_frame, encoding='bgr8')
         self.display_publisher.publish(display_msg)
