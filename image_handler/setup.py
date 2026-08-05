@@ -14,6 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'config', 'calibration_images'), glob('config/calibration_images/*')),
         (os.path.join('share', package_name, 'config'), ['config/camera_calibration_parameters.npz']),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -24,7 +25,9 @@ setup(
     entry_points={
     'console_scripts': [
         'image_overlay = image_handler.image_overlay:main',
-        'calibrate = image_handler.calibrate:main'
+        'calibrate = image_handler.calibrate:main',
+        'camera_manager = image_handler.camera_manager:main',
+        'create_panorama = image_handler.create_panorama:main'
     ],
     }
 )
