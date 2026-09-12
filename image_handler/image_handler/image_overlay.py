@@ -17,7 +17,8 @@ from std_msgs.msg import String
 
 
 ARUCO_TOPIC = "/new_image"
-ODOM_TOPIC  = "/zed/zed_node/odom"
+POSE_TOPIC  = "/zed/zed_node/pose"
+DEFAULT_CAMERA_TOPIC = "/zed/zed_node/rgb/image_rect_color"
 
 class OverlayNode(Node):
     def __init__(self):
@@ -28,9 +29,6 @@ class OverlayNode(Node):
 
         self.camera_matrix = None
         self.dist_coeffs = None
-
-        self.pose_subscription = self.create_subscription(
-            PoseStamped, "/zed/zed_node/pose", self.pose_callback, 10)
 
         # ODOMETRY
 
@@ -60,7 +58,6 @@ class OverlayNode(Node):
         package_path = get_package_share_directory('image_handler')
         npz_path = os.path.join(package_path, 'config', 'camera_calibration_parameters.npz')
 
-
         with np.load(npz_path) as data:
             self.camera_matrix = data['camera_matrix']
             self.dist_coeffs = data['dist_coeffs']
@@ -68,22 +65,28 @@ class OverlayNode(Node):
         self.aruco_publisher = self.create_publisher(Aruco, ARUCO_TOPIC, 10)
         self.display_publisher = self.create_publisher(Image, "/overlay/image", 10)
 
-        self.current_video_topic = None
-        self.camera_subscription = None
-
-        self.create_subscription(
-            String, '/active_camera_ns', self.on_camera_switch, 10
-        )
-
-
         ap = argparse.ArgumentParser()
         ap.add_argument("-t", "--type", type=str, default="DICT_4X4_50", help="type of ArUCo tag to detect")
         ap.add_argument("--no-display", action="store_true", help="disable OpenCV display window")
+        ap.add_argument("-c", "--camera-topic", type=str, default=DEFAULT_CAMERA_TOPIC,
+                         help="ROS image topic to subscribe to for the camera feed")
+        ap.add_argument("-p", "--pose-topic", type=str, default=POSE_TOPIC,
+                         help="ROS PoseStamped topic to subscribe to for odometry")
         args = vars(ap.parse_known_args()[0])
 
         self.no_display = args["no_display"]
+        self.camera_topic = args["camera_topic"]
+        self.pose_topic = args["pose_topic"]
 
-        
+        # Fixed camera + pose subscriptions (no runtime switching)
+        self.camera_subscription = self.create_subscription(
+            Image, self.camera_topic, self.set_videofeed_callback, 10
+        )
+        self.pose_subscription = self.create_subscription(
+            PoseStamped, self.pose_topic, self.pose_callback, 10
+        )
+        self.get_logger().info(f'Subscribed to camera topic: {self.camera_topic}')
+        self.get_logger().info(f'Subscribed to pose topic: {self.pose_topic}')
 
         ARUCO_DICT = {
             "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
@@ -115,8 +118,8 @@ class OverlayNode(Node):
 
         print(f"[INFO] detecting '{args['type']}' tags...")
         self.arucoDict = cv2.aruco.getPredefinedDictionary(ARUCO_DICT[args["type"]])
-        self._use_new_aruco_api = hasattr(cv2.aruco, 'ArucoDetector')
 
+        self._use_new_aruco_api = hasattr(cv2.aruco, 'ArucoDetector')
         if self._use_new_aruco_api:
             self.arucoParams = cv2.aruco.DetectorParameters()
             self.arucoDetector = cv2.aruco.ArucoDetector(self.arucoDict, self.arucoParams)
@@ -134,7 +137,7 @@ class OverlayNode(Node):
         self.circle_y = 30
         self.circle_speed = 10
 
-        self.timer = self.create_timer(0.03,self.detect_aruco)
+        self.timer = self.create_timer(0.03, self.detect_aruco)
 
         self.subscription = self.create_subscription(
             WaypointList,
@@ -146,7 +149,7 @@ class OverlayNode(Node):
         self.waypoints = []
         self.targets = []
 
-        self.home_lat = None  # change from hardcoded value to None
+        self.home_lat = None
         self.home_lon = None
 
         self.gps_subscription = self.create_subscription(
@@ -156,45 +159,20 @@ class OverlayNode(Node):
             10
         )
 
-    def on_camera_switch(self, msg: String):
-        new_topic = msg.data
-        if new_topic == self.current_video_topic:
-            return
-
-        # Extract namespace
-        ns = '/' + new_topic.split('/')[1]
-
-        self.current_video_topic = new_topic
-        if self.camera_subscription is not None:
-            self.destroy_subscription(self.camera_subscription)
-        self.camera_subscription = self.create_subscription(
-            Image, new_topic, self.set_videofeed_callback, 10
-        )
-
-        # Switch pose topic to match active camera
-        self.destroy_subscription(self.pose_subscription)
-        self.pose_subscription = self.create_subscription(
-            PoseStamped, f"{ns}/zed_node/pose", self.pose_callback, 10
-        )
-
-        self.get_logger().info(f'Switched to camera namespace: {ns}')
-
-
-    def set_videofeed_callback(self,msg):
+    def set_videofeed_callback(self, msg):
         try:
             self.video_feed = self.ros_cv_bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except:
             print("error converting camera feed to cv2 feed")
             return
-        
+
     def waypoint_callback(self, msg: WaypointList):
         self.waypoints = msg.list_waypoints
-
 
     def gps_callback(self, msg):
         if msg.fix_quality == 0 or msg.status == 0:
             return
-        
+
         if self.home_lat is None:
             self.home_lat = msg.latitude
             self.home_lon = msg.longitude
@@ -203,37 +181,28 @@ class OverlayNode(Node):
                 f"({msg.num_satellites} sats, HDOP {msg.hdop:.1f})"
             )
 
-
     def latlon_to_local(self, lat, lon):
-        # Convert lat/lon to local ENU metres relative to home origin
-        R = 6371000.0  # Earth radius in metres
-
+        R = 6371000.0
         dlat = math.radians(lat - self.home_lat)
         dlon = math.radians(lon - self.home_lon)
-
-        x = dlon * R * math.cos(math.radians(self.home_lat))  # East
-        y = dlat * R                                           # North
-
+        x = dlon * R * math.cos(math.radians(self.home_lat))
+        y = dlat * R
         return x, y
 
-
     def detect_aruco(self):
-        tag_size = 0.1  # meters
+        tag_size = 0.1
         focal_length = self.camera_matrix[0, 0]
 
-
-        if(self.video_feed is None):
-            #print("No camera feed found!")
+        if self.video_feed is None:
             return
-        
-            
+
         if self._use_new_aruco_api:
             (corners, ids, rejected) = self.arucoDetector.detectMarkers(self.video_feed)
         else:
             (corners, ids, rejected) = cv2.aruco.detectMarkers(
                 self.video_feed, self.arucoDict, parameters=self.arucoParams
             )
-        
+
         if len(corners) > 0:
             ids = ids.flatten()
             for (markerCorner, markerID) in zip(corners, ids):
@@ -307,7 +276,6 @@ class OverlayNode(Node):
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
         self.overlay_markers()
 
-
     def color_from_string(self, color: str):
         color_map = {
             "red":    (0, 0, 255),
@@ -316,11 +284,8 @@ class OverlayNode(Node):
             "yellow": (0, 255, 255),
         }
         return color_map.get(color.lower(), (255, 255, 255))
-    
 
     def overlay_markers(self):
-        
-        # add padding to image
         padding_top = 60
         padding_bottom = 30
         padding_sides = 20
@@ -330,7 +295,6 @@ class OverlayNode(Node):
             cv2.BORDER_CONSTANT,
             value=(0, 0, 0)
         )
-        # display xyz rpy
         y_pos = display_frame.shape[0] - 10
         x_pos = 10
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -338,20 +302,19 @@ class OverlayNode(Node):
         thickness = 1
 
         labels = [
-            (f'X: {self.odom_x:.2f} ',  (255, 80,  80)),   # blue-ish
-            (f'Y: {self.odom_y:.2f} ',  (80,  255, 80)),    # green
-            (f'Z: {self.odom_z:.2f} ',  (80,  80,  255)),   # red-ish
-            (f'R: {math.degrees(self.odom_roll):.1f} ',   (255, 255, 80)),   # cyan
-            (f'P: {math.degrees(self.odom_pitch):.1f} ',  (255, 80,  255)),  # magenta
-            (f'Y: {math.degrees(self.odom_yaw):.1f} ',    (80,  255, 255)),  # yellow
+            (f'X: {self.odom_x:.2f} ',  (255, 80,  80)),
+            (f'Y: {self.odom_y:.2f} ',  (80,  255, 80)),
+            (f'Z: {self.odom_z:.2f} ',  (80,  80,  255)),
+            (f'R: {math.degrees(self.odom_roll):.1f} ',   (255, 255, 80)),
+            (f'P: {math.degrees(self.odom_pitch):.1f} ',  (255, 80,  255)),
+            (f'Y: {math.degrees(self.odom_yaw):.1f} ',    (80,  255, 255)),
         ]
 
         for text, color in labels:
             cv2.putText(display_frame, text, (x_pos, y_pos), font, scale, color, thickness)
             text_width, _ = cv2.getTextSize(text, font, scale, thickness)[0]
             x_pos += text_width
-                
-        # Only build targets if we have GPS home and waypoints
+
         if self.home_lat is not None and len(self.waypoints) > 0:
             self.targets = [
                 {
@@ -362,33 +325,24 @@ class OverlayNode(Node):
                 for i, wp in enumerate(self.waypoints)
             ]
 
-        # draw locator bar
         bar_y = 30
         bar_x_left = 0
         bar_x_right = display_frame.shape[1]
         bar_center_x = bar_x_right // 2
-        bar_fov = math.radians(90)  # how many degrees the full bar width represents
+        bar_fov = math.radians(90)
 
-        # Draw the bar
         cv2.line(display_frame, (bar_x_left, bar_y), (bar_x_right, bar_y), (60, 60, 60), 2)
-        # Center tick
         cv2.line(display_frame, (bar_center_x, bar_y - 6), (bar_center_x, bar_y + 6), (255, 255, 255), 1)
 
         camera_pos = np.array([self.odom_x, self.odom_y, self.odom_z])
 
         for target in self.targets:
-            # Vector from camera to target in world XY plane
             delta = target["pos"] - camera_pos
-            angle_to_target = math.atan2(delta[1], delta[0])  # world-frame angle
-
-            # Relative angle: how far left/right of camera heading
+            angle_to_target = math.atan2(delta[1], delta[0])
             relative_angle = angle_to_target - self.odom_yaw
-
-            # Normalize to [-pi, pi]
             relative_angle = (relative_angle + math.pi) % (2 * math.pi) - math.pi
 
             if abs(relative_angle) <= bar_fov / 2:
-                # Map angle to pixel position
                 dot_x = int(bar_center_x + (relative_angle / (bar_fov / 2)) * (bar_x_right // 2))
                 dot_x = max(bar_x_left + 5, min(bar_x_right - 5, dot_x))
                 cv2.circle(display_frame, (dot_x, bar_y), 6, target["color"], -1)
@@ -396,7 +350,6 @@ class OverlayNode(Node):
                 cv2.putText(display_frame, str(target["id"]), (dot_x - 4, bar_y - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.35, target["color"], 1)
             else:
-                # Draw arrow at edge pointing toward the target
                 edge_x = bar_x_left + 8 if relative_angle < 0 else bar_x_right - 8
                 pts = np.array([[edge_x, bar_y + (30 * target["id"])], [edge_x + (8 if relative_angle < 0 else -8), bar_y - 6 + (30 * target["id"])],
                                 [edge_x + (8 if relative_angle < 0 else -8), bar_y + 6 + (30 * target["id"])]], np.int32)
@@ -404,7 +357,6 @@ class OverlayNode(Node):
 
                 cv2.putText(display_frame, str(target["id"]), (edge_x - 4, bar_y + (30 * target["id"]) - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.35, target["color"], 1)
-
 
         if not self.no_display:
             cv2.imshow("Frame", display_frame)
@@ -423,20 +375,16 @@ class OverlayNode(Node):
         self.odom_qz = msg.pose.orientation.z
         self.odom_qw = msg.pose.orientation.w
 
-        # yaw
         siny_cosp = 2.0 * (self.odom_qw * self.odom_qz + self.odom_qx * self.odom_qy)
         cosy_cosp = 1.0 - 2.0 * (self.odom_qy ** 2 + self.odom_qz ** 2)
-        self.odom_yaw = math.atan2(siny_cosp, cosy_cosp)  
-        
-        # pitch
+        self.odom_yaw = math.atan2(siny_cosp, cosy_cosp)
+
         sinp = 2.0 * (self.odom_qw * self.odom_qy - self.odom_qz * self.odom_qx)
         self.odom_pitch = math.asin(max(-1.0, min(1.0, sinp)))
 
-        # roll
         sinr_cosp = 2.0 * (self.odom_qw * self.odom_qx + self.odom_qy * self.odom_qz)
         cosr_cosp = 1.0 - 2.0 * (self.odom_qx ** 2 + self.odom_qy ** 2)
-        self.odom_roll = math.atan2(sinr_cosp, cosr_cosp) 
-        
+        self.odom_roll = math.atan2(sinr_cosp, cosr_cosp)
 
 
 def main(args=None):
