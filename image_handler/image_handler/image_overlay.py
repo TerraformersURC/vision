@@ -115,8 +115,17 @@ class OverlayNode(Node):
 
         print(f"[INFO] detecting '{args['type']}' tags...")
         self.arucoDict = cv2.aruco.getPredefinedDictionary(ARUCO_DICT[args["type"]])
-        self.arucoParams = cv2.aruco.DetectorParameters()
-        self.arucoDetector = cv2.aruco.ArucoDetector(self.arucoDict, self.arucoParams)
+        self._use_new_aruco_api = hasattr(cv2.aruco, 'ArucoDetector')
+
+        if self._use_new_aruco_api:
+            self.arucoParams = cv2.aruco.DetectorParameters()
+            self.arucoDetector = cv2.aruco.ArucoDetector(self.arucoDict, self.arucoParams)
+        else:
+            self.get_logger().warn(
+                f"OpenCV {cv2.__version__} lacks cv2.aruco.ArucoDetector; "
+                "falling back to legacy ArUco API."
+            )
+            self.arucoParams = cv2.aruco.DetectorParameters_create()
 
         print("[INFO] starting video stream...")
 
@@ -218,7 +227,12 @@ class OverlayNode(Node):
             return
         
             
-        (corners, ids, rejected) = self.arucoDetector.detectMarkers(self.video_feed)
+        if self._use_new_aruco_api:
+            (corners, ids, rejected) = self.arucoDetector.detectMarkers(self.video_feed)
+        else:
+            (corners, ids, rejected) = cv2.aruco.detectMarkers(
+                self.video_feed, self.arucoDict, parameters=self.arucoParams
+            )
         
         if len(corners) > 0:
             ids = ids.flatten()
