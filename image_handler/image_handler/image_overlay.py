@@ -18,7 +18,7 @@ from std_msgs.msg import String
 
 ARUCO_TOPIC = "/new_image"
 POSE_TOPIC  = "/zed/zed_node/pose"
-DEFAULT_CAMERA_TOPIC = "/zed/zed_node/rgb/image_rect_color"
+DEFAULT_CAMERA_TOPIC = "/zed/zed_node/rgb/color/rect/image"
 
 class OverlayNode(Node):
     def __init__(self):
